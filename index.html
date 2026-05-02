@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pokédex</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Pokédex</h1>
+            <p class="subtitle">Search for any Pokémon to learn about them</p>
+        </header>
+
+        <div class="search-section">
+            <input 
+                type="text" 
+                id="pokemonInput" 
+                placeholder="Enter Pokémon name (e.g., Pikachu, Charizard)" 
+                class="search-input"
+            >
+            <button id="searchBtn" class="search-button">Search</button>
+        </div>
+
+        <div id="errorMessage" class="error-message hidden"></div>
+
+        <div id="loadingSpinner" class="loading-spinner hidden">
+            <div class="spinner"></div>
+            <p>Loading Pokémon data...</p>
+        </div>
+
+        <div id="placeholder" class="placeholder">
+            <p>🔍 Search for a Pokémon to get started!</p>
+        </div>
+
+        <div id="infoCard" class="info-card hidden">
+            <h2 id="pokemonName" class="pokemon-name"></h2>
+            
+            <div class="info-grid">
+                <div class="info-item">
+                    <h3>Type</h3>
+                    <p id="pokemonType"></p>
+                </div>
+
+                <div class="info-item">
+                    <h3>Species</h3>
+                    <p id="pokemonSpecies"></p>
+                </div>
+            </div>
+
+            <div class="info-section">
+                <h3>Physiology</h3>
+                <p id="pokemonPhysiology"></p>
+            </div>
+
+            <div class="info-section">
+                <h3>Behaviour</h3>
+                <p id="pokemonBehaviour"></p>
+            </div>
+
+            <div class="info-section">
+                <h3>Special Abilities</h3>
+                <p id="pokemonAbilities"></p>
+            </div>
+
+            <div class="info-section">
+                <h3>Evolution</h3>
+                <p id="pokemonEvolution"></p>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
