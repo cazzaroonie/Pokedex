@@ -85,7 +85,7 @@ async function fetchPokemonData(pokemonName) {
         console.log('Wikitext content (first 2000 chars):', wikitext.substring(0, 2000));
         
         // Extract data from the PokémonBox template
-        const pokemonData = extractFromPokemonBox(wikitext, pokemonName);
+        const pokemonData = await extractFromPokemonBox(wikitext, pokemonName);
 
         return pokemonData;
     } catch (error) {
@@ -97,7 +97,7 @@ async function fetchPokemonData(pokemonName) {
 /**
  * Extract Pokémon data from the {{PokémonBox}} template
  */
-function extractFromPokemonBox(wikitext, pokemonName) {
+async function extractFromPokemonBox(wikitext, pokemonName) {
     // Find the PokémonBox template
     const boxMatch = wikitext.match(/\{\{PokémonBox\s*([\s\S]*?)\}\}/i);
     
@@ -113,6 +113,10 @@ function extractFromPokemonBox(wikitext, pokemonName) {
     const templateData = parseTemplateData(boxContent);
     console.log('Parsed template data:', templateData);
 
+    // Extract ability descriptions from their dedicated pages
+    const abilityDescription = await fetchAbilityDescription(templateData.ability);
+    const hiddenAbilityDescription = await fetchAbilityDescription(templateData.h_ability);
+
     // Extract the information we need
     const pokemonData = {
         name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1).toLowerCase(),
@@ -120,11 +124,100 @@ function extractFromPokemonBox(wikitext, pokemonName) {
         species: templateData.species || 'Unknown',
         physiology: buildPhysiologyInfo(templateData),
         behaviour: extractBehaviourFromWikitext(wikitext),
-        abilities: buildAbilitiesInfo(templateData),
+        abilities: buildAbilitiesInfoWithDescriptions(templateData, abilityDescription, hiddenAbilityDescription),
         evolution: buildEvolutionInfo(templateData)
     };
 
     return pokemonData;
+}
+
+/**
+ * Fetch ability description from its dedicated wiki page
+ */
+async function fetchAbilityDescription(abilityName) {
+    if (!abilityName) return null;
+
+    const apiUrl = 'https://pokemon.fandom.com/api.php';
+    
+    try {
+        // Format ability name for URL (e.g., "Static" -> "Static_(Ability)")
+        const abilityPageTitle = `${abilityName}_(Ability)`;
+        
+        const response = await fetch(
+            `${apiUrl}?action=query&format=json&titles=${encodeURIComponent(abilityPageTitle)}&prop=revisions&rvprop=content&origin=*`
+        );
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const pages = data.query.pages;
+        const pageId = Object.keys(pages)[0];
+        const page = pages[pageId];
+
+        // Check if page exists
+        if (page.missing !== undefined) {
+            console.log(`Ability page not found for: ${abilityName}`);
+            return null;
+        }
+
+        const wikitext = page.revisions[0]['*'] || '';
+        
+        // Extract the effect/description from the ability page
+        const description = extractAbilityEffect(wikitext);
+        console.log(`Ability description for ${abilityName}:`, description);
+        
+        return description;
+    } catch (error) {
+        console.error(`Error fetching ability description for ${abilityName}:`, error);
+        return null;
+    }
+}
+
+/**
+ * Extract the effect description from an ability page
+ */
+function extractAbilityEffect(wikitext) {
+    // Look for the "In battle" or "Effect" section
+    const effectPatterns = [
+        /==\s*In\s+(?:the\s+core\s+series\s+)?[Gg]ames?\s*==\s*([\s\S]*?)(?===|$)/,
+        /==\s*Effect\s*==\s*([\s\S]*?)(?===|$)/,
+        /==\s*Description\s*==\s*([\s\S]*?)(?===|$)/
+    ];
+
+    for (let pattern of effectPatterns) {
+        const match = wikitext.match(pattern);
+        if (match && match[1]) {
+            // Extract text lines and clean them
+            const lines = match[1]
+                .split('\n')
+                .filter(line => {
+                    const trimmed = line.trim();
+                    // Filter out wiki markup, empty lines, and certain templates
+                    return trimmed && 
+                           !trimmed.startsWith('{') && 
+                           !trimmed.startsWith('|') &&
+                           !trimmed.startsWith('*') &&
+                           !trimmed.startsWith('<');
+                })
+                .slice(0, 2); // Get first 1-2 sentences
+
+            if (lines.length > 0) {
+                let text = lines.join(' ')
+                    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2 $1') // Wiki links
+                    .replace(/'''([^']+)'''/g, '$1') // Bold
+                    .replace(/''([^']+)''/g, '$1') // Italic
+                    .substring(0, 500);
+
+                if (text) {
+                    return text;
+                }
+            }
+        }
+    }
+
+    return null;
 }
 
 /**
@@ -173,19 +266,28 @@ function buildPhysiologyInfo(data) {
 }
 
 /**
- * Build abilities information
+ * Build abilities information with descriptions
  */
-function buildAbilitiesInfo(data) {
+function buildAbilitiesInfoWithDescriptions(data, abilityDescription, hiddenAbilityDescription) {
     let abilities = [];
     
     if (data.ability) {
-        abilities.push(data.ability);
-    }
-    if (data.h_ability) {
-        abilities.push(`Hidden Ability: ${data.h_ability}`);
+        if (abilityDescription) {
+            abilities.push(`${data.ability}: ${abilityDescription}`);
+        } else {
+            abilities.push(data.ability);
+        }
     }
     
-    return abilities.length > 0 ? abilities.join(' • ') : 'Ability information not available.';
+    if (data.h_ability) {
+        if (hiddenAbilityDescription) {
+            abilities.push(`Hidden Ability - ${data.h_ability}: ${hiddenAbilityDescription}`);
+        } else {
+            abilities.push(`Hidden Ability: ${data.h_ability}`);
+        }
+    }
+    
+    return abilities.length > 0 ? abilities.join('\n\n') : 'Ability information not available.';
 }
 
 /**
