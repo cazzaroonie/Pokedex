@@ -53,9 +53,9 @@ async function fetchPokemonData(pokemonName) {
     const apiUrl = 'https://pokemon.fandom.com/api.php';
     
     try {
-        // First, get the page content
+        // Get the page content with wikitext (not plain text)
         const response = await fetch(
-            `${apiUrl}?action=query&format=json&titles=${encodeURIComponent(pokemonName)}&prop=extracts&explaintext=true&origin=*`
+            `${apiUrl}?action=query&format=json&titles=${encodeURIComponent(pokemonName)}&prop=revisions&rvprop=content&origin=*`
         );
 
         if (!response.ok) {
@@ -72,17 +72,18 @@ async function fetchPokemonData(pokemonName) {
             return null;
         }
 
-        const content = page.extract || '';
+        // Get the wikitext content
+        const wikitext = page.revisions[0]['*'] || '';
         
-        // Parse the content to extract required information
+        // Parse the wikitext to extract required information
         const pokemonData = {
             name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1).toLowerCase(),
-            type: extractSection(content, 'Type', 'Types'),
-            species: extractSection(content, 'Species'),
-            physiology: extractSection(content, 'Physiology', 'Appearance', 'Physical characteristics'),
-            behaviour: extractSection(content, 'Behaviour', 'Behavior', 'Personality', 'Characteristics'),
-            abilities: extractSection(content, 'Abilities', 'Special Abilities', 'Ability'),
-            evolution: extractSection(content, 'Evolution', 'Evolutions')
+            type: extractWikiSection(wikitext, ['Type', 'Types']),
+            species: extractWikiSection(wikitext, ['Species']),
+            physiology: extractWikiSection(wikitext, ['Physiology', 'Appearance', 'Physical characteristics']),
+            behaviour: extractWikiSection(wikitext, ['Behaviour', 'Behavior', 'Personality']),
+            abilities: extractWikiSection(wikitext, ['Abilities', 'Special Abilities', 'Ability']),
+            evolution: extractWikiSection(wikitext, ['Evolution', 'Evolutions'])
         };
 
         return pokemonData;
@@ -93,53 +94,56 @@ async function fetchPokemonData(pokemonName) {
 }
 
 /**
- * Extract a specific section from the wiki content text
+ * Extract a specific section from wikitext content
  */
-function extractSection(content, ...sectionNames) {
-    const lines = content.split('\n');
-    let capturing = false;
-    let sectionContent = [];
-    let minIndentation = Infinity;
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const trimmedLine = line.trim();
-
-        // Check if this line starts one of the target sections
-        if (!capturing && sectionNames.some(name => 
-            trimmedLine.toLowerCase().includes(name.toLowerCase()) && 
-            (line.match(/^=+/) || i === 0)
-        )) {
-            capturing = true;
-            minIndentation = line.search(/\S/);
-            continue;
-        }
-
-        // If we're capturing and hit a new section header at the same or higher level, stop
-        if (capturing && line.match(/^=+/) && line.search(/\S/) <= minIndentation && minIndentation !== Infinity) {
-            break;
-        }
-
-        // Collect content while capturing
-        if (capturing && trimmedLine && !line.match(/^=/)) {
-            sectionContent.push(trimmedLine);
-        }
-    }
-
-    // If no content found, return a default message
-    if (sectionContent.length === 0) {
-        return `Information about ${sectionNames[0]} is not available.`;
-    }
-
-    // Join and limit to a reasonable length (summarize)
-    let result = sectionContent.join(' ').substring(0, 500);
+function extractWikiSection(wikitext, sectionNames) {
+    // Split by section headers (marked by == in wikitext)
+    const sections = wikitext.split(/==\s*/);
     
-    // If content was truncated, add ellipsis
-    if (sectionContent.join(' ').length > 500) {
-        result += '...';
+    for (let i = 0; i < sections.length; i++) {
+        const section = sections[i];
+        const sectionTitle = section.split('\n')[0].toLowerCase().trim();
+        
+        // Check if this section matches one of our target names
+        if (sectionNames.some(name => sectionTitle.includes(name.toLowerCase()))) {
+            // Get the content of this section (skip the title)
+            const lines = section.split('\n').slice(1);
+            let content = [];
+            
+            // Collect lines until we hit another section or template
+            for (let line of lines) {
+                line = line.trim();
+                
+                // Stop if we hit a new section or certain templates
+                if (line.startsWith('==') || line.startsWith('{|') || line.startsWith('|}')) {
+                    break;
+                }
+                
+                // Skip empty lines and wiki markup
+                if (line && !line.startsWith('{') && !line.startsWith('|') && !line.startsWith('*')) {
+                    content.push(line);
+                }
+            }
+            
+            if (content.length > 0) {
+                // Remove wiki links and format
+                let result = content
+                    .join(' ')
+                    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2$1') // Wiki links [[text|display]] -> display
+                    .replace(/'''([^']+)'''/g, '$1') // Bold
+                    .replace(/''([^']+)''/g, '$1') // Italic
+                    .substring(0, 500); // Limit length
+                
+                if (result.length === 500) {
+                    result += '...';
+                }
+                
+                return result || `Information about ${sectionNames[0]} is not available.`;
+            }
+        }
     }
-
-    return result || `Information about ${sectionNames[0]} is not available.`;
+    
+    return `Information about ${sectionNames[0]} is not available.`;
 }
 
 /**
