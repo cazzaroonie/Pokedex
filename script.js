@@ -231,9 +231,14 @@ function extractAbilityEffect(wikitext) {
 
             if (lines.length > 0) {
                 let text = lines.join(' ')
-                    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2 $1') // Wiki links
+                    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2 $1') // Wiki links [[text|display]]
                     .replace(/'''([^']+)'''/g, '$1') // Bold
                     .replace(/''([^']+)''/g, '$1') // Italic
+                    .replace(/{{Type\|([^}]+)}}/g, '$1') // Type tags {{Type|Electric}}
+                    .replace(/\{\{[^}]*\}\}/g, '') // Remove remaining templates
+                    .replace(/\|/g, ' ') // Replace pipes with spaces
+                    .replace(/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2};?\s*/g, '') // Remove generation labels like III/IV/V/...
+                    .replace(/\s+/g, ' ') // Remove extra spaces
                     .trim()
                     .substring(0, 500);
 
