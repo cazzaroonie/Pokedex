@@ -114,8 +114,11 @@ async function extractFromPokemonBox(wikitext, pokemonName) {
     console.log('Parsed template data:', templateData);
 
     // Extract ability descriptions from their dedicated pages
+    console.log('Fetching ability descriptions...');
     const abilityDescription = await fetchAbilityDescription(templateData.ability);
+    console.log('Ability description result:', abilityDescription);
     const hiddenAbilityDescription = await fetchAbilityDescription(templateData.h_ability);
+    console.log('Hidden ability description result:', hiddenAbilityDescription);
 
     // Extract the information we need
     const pokemonData = {
@@ -135,40 +138,53 @@ async function extractFromPokemonBox(wikitext, pokemonName) {
  * Fetch ability description from its dedicated wiki page
  */
 async function fetchAbilityDescription(abilityName) {
-    if (!abilityName) return null;
+    if (!abilityName) {
+        console.log('No ability name provided');
+        return null;
+    }
 
     const apiUrl = 'https://pokemon.fandom.com/api.php';
     
     try {
-        // Format ability name for URL (e.g., "Static" -> "Static_(Ability)")
-        const abilityPageTitle = `${abilityName}_(Ability)`;
-        
-        const response = await fetch(
-            `${apiUrl}?action=query&format=json&titles=${encodeURIComponent(abilityPageTitle)}&prop=revisions&rvprop=content&origin=*`
-        );
+        // Try multiple URL formats
+        const urlFormats = [
+            `${abilityName}_(Ability)`,
+            `${abilityName}_Ability`,
+            abilityName
+        ];
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        for (let urlFormat of urlFormats) {
+            console.log(`Trying to fetch ability page: ${urlFormat}`);
+            
+            const response = await fetch(
+                `${apiUrl}?action=query&format=json&titles=${encodeURIComponent(urlFormat)}&prop=revisions&rvprop=content&origin=*`
+            );
+
+            if (!response.ok) {
+                console.log(`HTTP error for ${urlFormat}: ${response.status}`);
+                continue;
+            }
+
+            const data = await response.json();
+            const pages = data.query.pages;
+            const pageId = Object.keys(pages)[0];
+            const page = pages[pageId];
+
+            // Check if page exists
+            if (page.missing === undefined && page.revisions) {
+                const wikitext = page.revisions[0]['*'] || '';
+                console.log(`Found ability page: ${urlFormat}`);
+                
+                // Extract the effect/description from the ability page
+                const description = extractAbilityEffect(wikitext);
+                console.log(`Extracted description for ${abilityName}:`, description);
+                
+                return description;
+            }
         }
 
-        const data = await response.json();
-        const pages = data.query.pages;
-        const pageId = Object.keys(pages)[0];
-        const page = pages[pageId];
-
-        // Check if page exists
-        if (page.missing !== undefined) {
-            console.log(`Ability page not found for: ${abilityName}`);
-            return null;
-        }
-
-        const wikitext = page.revisions[0]['*'] || '';
-        
-        // Extract the effect/description from the ability page
-        const description = extractAbilityEffect(wikitext);
-        console.log(`Ability description for ${abilityName}:`, description);
-        
-        return description;
+        console.log(`No ability page found for: ${abilityName}`);
+        return null;
     } catch (error) {
         console.error(`Error fetching ability description for ${abilityName}:`, error);
         return null;
@@ -179,16 +195,24 @@ async function fetchAbilityDescription(abilityName) {
  * Extract the effect description from an ability page
  */
 function extractAbilityEffect(wikitext) {
+    console.log('Extracting ability effect from wikitext...');
+    console.log('First 1500 chars:', wikitext.substring(0, 1500));
+    
     // Look for the "In battle" or "Effect" section
     const effectPatterns = [
         /==\s*In\s+(?:the\s+core\s+series\s+)?[Gg]ames?\s*==\s*([\s\S]*?)(?===|$)/,
         /==\s*Effect\s*==\s*([\s\S]*?)(?===|$)/,
-        /==\s*Description\s*==\s*([\s\S]*?)(?===|$)/
+        /==\s*Description\s*==\s*([\s\S]*?)(?===|$)/,
+        /==\s*In\s+battle\s*==\s*([\s\S]*?)(?===|$)/i
     ];
 
     for (let pattern of effectPatterns) {
+        console.log(`Trying pattern: ${pattern}`);
         const match = wikitext.match(pattern);
         if (match && match[1]) {
+            console.log('Pattern matched!');
+            console.log('Section content (first 500 chars):', match[1].substring(0, 500));
+            
             // Extract text lines and clean them
             const lines = match[1]
                 .split('\n')
@@ -201,15 +225,19 @@ function extractAbilityEffect(wikitext) {
                            !trimmed.startsWith('*') &&
                            !trimmed.startsWith('<');
                 })
-                .slice(0, 2); // Get first 1-2 sentences
+                .slice(0, 3); // Get first 1-3 sentences
+
+            console.log('Filtered lines:', lines);
 
             if (lines.length > 0) {
                 let text = lines.join(' ')
                     .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2 $1') // Wiki links
                     .replace(/'''([^']+)'''/g, '$1') // Bold
                     .replace(/''([^']+)''/g, '$1') // Italic
+                    .trim()
                     .substring(0, 500);
 
+                console.log('Final text:', text);
                 if (text) {
                     return text;
                 }
@@ -217,6 +245,7 @@ function extractAbilityEffect(wikitext) {
         }
     }
 
+    console.log('No effect section found');
     return null;
 }
 
