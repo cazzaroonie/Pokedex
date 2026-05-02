@@ -37,6 +37,7 @@ async function searchPokemon() {
             return;
         }
 
+        console.log('Pokemon Data:', pokemonData); // DEBUG: Log the data
         displayPokemonInfo(pokemonData);
         hideLoading();
     } catch (error) {
@@ -53,7 +54,7 @@ async function fetchPokemonData(pokemonName) {
     const apiUrl = 'https://pokemon.fandom.com/api.php';
     
     try {
-        // Get the page content with wikitext (not plain text)
+        // Get the page content with wikitext
         const response = await fetch(
             `${apiUrl}?action=query&format=json&titles=${encodeURIComponent(pokemonName)}&prop=revisions&rvprop=content&origin=*`
         );
@@ -63,6 +64,8 @@ async function fetchPokemonData(pokemonName) {
         }
 
         const data = await response.json();
+        console.log('API Response:', data); // DEBUG: Log the raw API response
+        
         const pages = data.query.pages;
         const pageId = Object.keys(pages)[0];
         const page = pages[pageId];
@@ -73,16 +76,22 @@ async function fetchPokemonData(pokemonName) {
         }
 
         // Get the wikitext content
+        if (!page.revisions || !page.revisions[0]) {
+            console.error('No revisions found for page');
+            return null;
+        }
+
         const wikitext = page.revisions[0]['*'] || '';
+        console.log('Wikitext content (first 1000 chars):', wikitext.substring(0, 1000)); // DEBUG
         
         // Parse the wikitext to extract required information
         const pokemonData = {
             name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1).toLowerCase(),
             type: extractWikiSection(wikitext, ['Type', 'Types']),
             species: extractWikiSection(wikitext, ['Species']),
-            physiology: extractWikiSection(wikitext, ['Physiology', 'Appearance', 'Physical characteristics']),
-            behaviour: extractWikiSection(wikitext, ['Behaviour', 'Behavior', 'Personality']),
-            abilities: extractWikiSection(wikitext, ['Abilities', 'Special Abilities', 'Ability']),
+            physiology: extractWikiSection(wikitext, ['Physiology', 'Appearance', 'Physical characteristics', 'Description']),
+            behaviour: extractWikiSection(wikitext, ['Behaviour', 'Behavior', 'Personality', 'Nature']),
+            abilities: extractWikiSection(wikitext, ['Abilities', 'Special Abilities', 'Ability', 'Powers']),
             evolution: extractWikiSection(wikitext, ['Evolution', 'Evolutions'])
         };
 
@@ -97,41 +106,51 @@ async function fetchPokemonData(pokemonName) {
  * Extract a specific section from wikitext content
  */
 function extractWikiSection(wikitext, sectionNames) {
-    // Split by section headers (marked by == in wikitext)
-    const sections = wikitext.split(/==\s*/);
+    console.log('Looking for sections:', sectionNames); // DEBUG
     
-    for (let i = 0; i < sections.length; i++) {
-        const section = sections[i];
-        const sectionTitle = section.split('\n')[0].toLowerCase().trim();
+    // Split by section headers (marked by == in wikitext)
+    const sections = wikitext.split(/==\s*([^=]+)\s*==/).filter(Boolean);
+    
+    // Process sections in pairs (title, content)
+    for (let i = 0; i < sections.length; i += 2) {
+        const sectionTitle = sections[i].toLowerCase().trim();
+        const sectionContent = sections[i + 1] || '';
+        
+        console.log(`Checking section: "${sectionTitle}"`); // DEBUG
         
         // Check if this section matches one of our target names
         if (sectionNames.some(name => sectionTitle.includes(name.toLowerCase()))) {
-            // Get the content of this section (skip the title)
-            const lines = section.split('\n').slice(1);
+            console.log(`Found matching section: ${sectionTitle}`); // DEBUG
+            
+            const lines = sectionContent.split('\n');
             let content = [];
             
-            // Collect lines until we hit another section or template
+            // Collect lines until we hit a template or pipe
             for (let line of lines) {
                 line = line.trim();
                 
-                // Stop if we hit a new section or certain templates
-                if (line.startsWith('==') || line.startsWith('{|') || line.startsWith('|}')) {
+                // Skip empty lines and wiki markup
+                if (!line || line.startsWith('{') || line.startsWith('|') || line.startsWith('*')) {
+                    continue;
+                }
+                
+                // Stop if we hit an infobox or other template
+                if (line.startsWith('{{') || line.startsWith('}}')) {
                     break;
                 }
                 
-                // Skip empty lines and wiki markup
-                if (line && !line.startsWith('{') && !line.startsWith('|') && !line.startsWith('*')) {
-                    content.push(line);
-                }
+                content.push(line);
             }
             
             if (content.length > 0) {
                 // Remove wiki links and format
                 let result = content
                     .join(' ')
-                    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2$1') // Wiki links [[text|display]] -> display
+                    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2 $1') // Wiki links
                     .replace(/'''([^']+)'''/g, '$1') // Bold
                     .replace(/''([^']+)''/g, '$1') // Italic
+                    .replace(/&quot;/g, '"')
+                    .replace(/&apos;/g, "'")
                     .substring(0, 500); // Limit length
                 
                 if (result.length === 500) {
@@ -143,6 +162,7 @@ function extractWikiSection(wikitext, sectionNames) {
         }
     }
     
+    console.log(`No matching section found for:`, sectionNames); // DEBUG
     return `Information about ${sectionNames[0]} is not available.`;
 }
 
