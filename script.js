@@ -126,7 +126,7 @@ async function extractFromPokemonBox(wikitext, pokemonName) {
         type: templateData.type || 'Unknown',
         species: templateData.species || 'Unknown',
         physiology: buildPhysiologyInfo(templateData),
-        behaviour: extractBehaviourFromWikitext(wikitext),
+        behaviour: cleanWikiMarkup(extractBehaviourFromWikitext(wikitext)),
         abilities: buildAbilitiesInfoWithDescriptions(templateData, abilityDescription, hiddenAbilityDescription),
         evolution: buildEvolutionInfo(templateData)
     };
@@ -230,17 +230,9 @@ function extractAbilityEffect(wikitext) {
             console.log('Filtered lines:', lines);
 
             if (lines.length > 0) {
-                let text = lines.join(' ')
-                    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2 $1') // Wiki links [[text|display]]
-                    .replace(/'''([^']+)'''/g, '$1') // Bold
-                    .replace(/''([^']+)''/g, '$1') // Italic
-                    .replace(/{{Type\|([^}]+)}}/g, '$1') // Type tags {{Type|Electric}}
-                    .replace(/\{\{[^}]*\}\}/g, '') // Remove remaining templates
-                    .replace(/\|/g, ' ') // Replace pipes with spaces
-                    .replace(/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2};?\s*/g, '') // Remove generation labels like III/IV/V/...
-                    .replace(/\s+/g, ' ') // Remove extra spaces
-                    .trim()
-                    .substring(0, 500);
+                let text = lines.join(' ');
+                text = cleanWikiMarkup(text);
+                text = text.substring(0, 500);
 
                 console.log('Final text:', text);
                 if (text) {
@@ -252,6 +244,22 @@ function extractAbilityEffect(wikitext) {
 
     console.log('No effect section found');
     return null;
+}
+
+/**
+ * Clean wiki markup from text
+ */
+function cleanWikiMarkup(text) {
+    return text
+        .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2 $1') // Wiki links [[text|display]]
+        .replace(/'''([^']+)'''/g, '$1') // Bold
+        .replace(/''([^']+)''/g, '$1') // Italic
+        .replace(/{{Type\|([^}]+)}}/g, '$1') // Type tags {{Type|Electric}}
+        .replace(/\{\{[^}]*\}\}/g, '') // Remove remaining templates
+        .replace(/\|/g, ' ') // Replace pipes with spaces
+        .replace(/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2}\/\d{1,2};?\s*/g, '') // Remove generation labels
+        .replace(/\s+/g, ' ') // Remove extra spaces
+        .trim();
 }
 
 /**
