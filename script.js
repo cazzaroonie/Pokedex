@@ -37,7 +37,7 @@ async function searchPokemon() {
             return;
         }
 
-        console.log('Pokemon Data:', pokemonData); // DEBUG: Log the data
+        console.log('Pokemon Data:', pokemonData);
         displayPokemonInfo(pokemonData);
         hideLoading();
     } catch (error) {
@@ -64,7 +64,7 @@ async function fetchPokemonData(pokemonName) {
         }
 
         const data = await response.json();
-        console.log('API Response:', data); // DEBUG: Log the raw API response
+        console.log('API Response:', data);
         
         const pages = data.query.pages;
         const pageId = Object.keys(pages)[0];
@@ -82,18 +82,10 @@ async function fetchPokemonData(pokemonName) {
         }
 
         const wikitext = page.revisions[0]['*'] || '';
-        console.log('Wikitext content (first 1000 chars):', wikitext.substring(0, 1000)); // DEBUG
+        console.log('Wikitext content (first 2000 chars):', wikitext.substring(0, 2000));
         
-        // Parse the wikitext to extract required information
-        const pokemonData = {
-            name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1).toLowerCase(),
-            type: extractWikiSection(wikitext, ['Type', 'Types']),
-            species: extractWikiSection(wikitext, ['Species']),
-            physiology: extractWikiSection(wikitext, ['Physiology', 'Appearance', 'Physical characteristics', 'Description']),
-            behaviour: extractWikiSection(wikitext, ['Behaviour', 'Behavior', 'Personality', 'Nature']),
-            abilities: extractWikiSection(wikitext, ['Abilities', 'Special Abilities', 'Ability', 'Powers']),
-            evolution: extractWikiSection(wikitext, ['Evolution', 'Evolutions'])
-        };
+        // Extract data from the PokémonBox template
+        const pokemonData = extractFromPokemonBox(wikitext, pokemonName);
 
         return pokemonData;
     } catch (error) {
@@ -103,67 +95,142 @@ async function fetchPokemonData(pokemonName) {
 }
 
 /**
- * Extract a specific section from wikitext content
+ * Extract Pokémon data from the {{PokémonBox}} template
  */
-function extractWikiSection(wikitext, sectionNames) {
-    console.log('Looking for sections:', sectionNames); // DEBUG
+function extractFromPokemonBox(wikitext, pokemonName) {
+    // Find the PokémonBox template
+    const boxMatch = wikitext.match(/\{\{PokémonBox\s*([\s\S]*?)\}\}/i);
     
-    // Split by section headers (marked by == in wikitext)
-    const sections = wikitext.split(/==\s*([^=]+)\s*==/).filter(Boolean);
+    if (!boxMatch) {
+        console.log('No PokémonBox template found');
+        return null;
+    }
+
+    const boxContent = boxMatch[1];
+    console.log('PokémonBox content found');
+
+    // Parse key-value pairs from the template
+    const templateData = parseTemplateData(boxContent);
+    console.log('Parsed template data:', templateData);
+
+    // Extract the information we need
+    const pokemonData = {
+        name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1).toLowerCase(),
+        type: templateData.type || 'Unknown',
+        species: templateData.species || 'Unknown',
+        physiology: buildPhysiologyInfo(templateData),
+        behaviour: extractBehaviourFromWikitext(wikitext),
+        abilities: buildAbilitiesInfo(templateData),
+        evolution: buildEvolutionInfo(templateData)
+    };
+
+    return pokemonData;
+}
+
+/**
+ * Parse template key-value pairs
+ */
+function parseTemplateData(content) {
+    const data = {};
     
-    // Process sections in pairs (title, content)
-    for (let i = 0; i < sections.length; i += 2) {
-        const sectionTitle = sections[i].toLowerCase().trim();
-        const sectionContent = sections[i + 1] || '';
-        
-        console.log(`Checking section: "${sectionTitle}"`); // DEBUG
-        
-        // Check if this section matches one of our target names
-        if (sectionNames.some(name => sectionTitle.includes(name.toLowerCase()))) {
-            console.log(`Found matching section: ${sectionTitle}`); // DEBUG
+    // Split by pipe character (|) which separates parameters
+    const params = content.split('|');
+    
+    for (let param of params) {
+        // Split key and value by equals sign
+        const [key, ...valueParts] = param.split('=');
+        if (key && valueParts.length > 0) {
+            const cleanKey = key.trim().toLowerCase();
+            const value = valueParts.join('=').trim();
+            data[cleanKey] = value;
+        }
+    }
+    
+    console.log('Parsed data keys:', Object.keys(data));
+    return data;
+}
+
+/**
+ * Build physiology information
+ */
+function buildPhysiologyInfo(data) {
+    let info = [];
+    
+    if (data.height_im) {
+        info.push(`Height: ${data.height_im}`);
+    }
+    if (data.weight_im) {
+        info.push(`Weight: ${data.weight_im} lbs`);
+    }
+    if (data.color) {
+        info.push(`Color: ${data.color}`);
+    }
+    if (data.body) {
+        info.push(`Body Type: ${data.body}`);
+    }
+    
+    return info.length > 0 ? info.join(' • ') : 'Physiology information not available.';
+}
+
+/**
+ * Build abilities information
+ */
+function buildAbilitiesInfo(data) {
+    let abilities = [];
+    
+    if (data.ability) {
+        abilities.push(data.ability);
+    }
+    if (data.h_ability) {
+        abilities.push(`Hidden Ability: ${data.h_ability}`);
+    }
+    
+    return abilities.length > 0 ? abilities.join(' • ') : 'Ability information not available.';
+}
+
+/**
+ * Build evolution information
+ */
+function buildEvolutionInfo(data) {
+    let evolution = [];
+    
+    if (data.evolves_from) {
+        evolution.push(`Evolves from: ${data.evolves_from}`);
+    }
+    if (data.evolves_into) {
+        evolution.push(`Evolves into: ${data.evolves_into}`);
+    }
+    
+    return evolution.length > 0 ? evolution.join(' • ') : 'Evolution information not available.';
+}
+
+/**
+ * Extract behaviour information from the main wikitext content
+ */
+function extractBehaviourFromWikitext(wikitext) {
+    // Look for sections that might contain behaviour information
+    const behaviourPatterns = [
+        /==\s*(?:Personality|Behavior|Behaviour|Nature)\s*==\s*([\s\S]*?)(?===|$)/i,
+        /==\s*Description\s*==\s*([\s\S]*?)(?===|$)/i
+    ];
+    
+    for (let pattern of behaviourPatterns) {
+        const match = wikitext.match(pattern);
+        if (match && match[1]) {
+            let text = match[1]
+                .split('\n')
+                .filter(line => line.trim() && !line.trim().startsWith('{') && !line.trim().startsWith('|'))
+                .slice(0, 2)
+                .join(' ')
+                .substring(0, 500);
             
-            const lines = sectionContent.split('\n');
-            let content = [];
-            
-            // Collect lines until we hit a template or pipe
-            for (let line of lines) {
-                line = line.trim();
-                
-                // Skip empty lines and wiki markup
-                if (!line || line.startsWith('{') || line.startsWith('|') || line.startsWith('*')) {
-                    continue;
-                }
-                
-                // Stop if we hit an infobox or other template
-                if (line.startsWith('{{') || line.startsWith('}}')) {
-                    break;
-                }
-                
-                content.push(line);
-            }
-            
-            if (content.length > 0) {
-                // Remove wiki links and format
-                let result = content
-                    .join(' ')
-                    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2 $1') // Wiki links
-                    .replace(/'''([^']+)'''/g, '$1') // Bold
-                    .replace(/''([^']+)''/g, '$1') // Italic
-                    .replace(/&quot;/g, '"')
-                    .replace(/&apos;/g, "'")
-                    .substring(0, 500); // Limit length
-                
-                if (result.length === 500) {
-                    result += '...';
-                }
-                
-                return result || `Information about ${sectionNames[0]} is not available.`;
+            if (text) {
+                return text;
             }
         }
     }
     
-    console.log(`No matching section found for:`, sectionNames); // DEBUG
-    return `Information about ${sectionNames[0]} is not available.`;
+    return 'Behaviour information not available.';
 }
 
 /**
